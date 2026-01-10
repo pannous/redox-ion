@@ -117,7 +117,7 @@ opt-level = 0
 debug = true
 
 [profile.release]
-lto = true
+lto = false
 panic = "abort"
 
 # Required to make `cargo vendor` work

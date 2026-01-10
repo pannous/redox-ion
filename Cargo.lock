@@ -2854,3 +2854,19 @@ dependencies = [
  "quote",
  "syn 2.0.100",
 ]
+
+[[patch.unused]]
+name = "redox-rt"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "relibc"
+version = "0.2.5"
+
+[[patch.unused]]
+name = "redox-rt"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "relibc"
+version = "0.2.5"
