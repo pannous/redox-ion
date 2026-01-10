@@ -1,7 +1,7 @@
 use super::{EmptyCompleter, Status};
 use crate as ion_shell;
 use builtins_proc::builtin;
-use calc::{eval_polish_with_env, eval_with_env, CalcError, Value};
+use crate::calc::{eval_polish_with_env, eval_with_env, CalcError, Value};
 use liner::{Context, Prompt};
 use std::io::{self, Read};
 
@@ -26,13 +26,13 @@ Examples:
 "#;
 
 fn calc_or_polish_calc(args: &str) -> Result<Value, CalcError> {
-    let mut env = calc::parse::DefaultEnvironment::with_ans(None);
+    let mut env = crate::calc::parse::DefaultEnvironment::with_ans(None);
     eval_with_env(args, &mut env).or_else(|_| eval_polish_with_env(args, &mut env))
 }
 
 fn calc_or_polish_calc_with_env(
     args: &str,
-    env: &mut impl calc::parse::Environment,
+    env: &mut impl crate::calc::parse::Environment,
 ) -> Result<Value, CalcError> {
     eval_with_env(args, env).or_else(|_| eval_polish_with_env(args, env))
 }
@@ -97,7 +97,7 @@ pub fn math(args: &[crate::types::Str], _: &mut crate::Shell<'_>) -> Status {
                 Ok(text) if text.trim() == "exit" => return Status::SUCCESS,
                 Ok(text) if text.trim() == "help" => eprintln!("{}", REPL_HELP),
                 Ok(s) => {
-                    let mut env = calc::parse::DefaultEnvironment::with_ans(ans.clone());
+                    let mut env = crate::calc::parse::DefaultEnvironment::with_ans(ans.clone());
                     let result = calc_or_polish_calc_with_env(s, &mut env);
                     match result {
                         Ok(v) => {

@@ -672,7 +672,7 @@ trait ExpanderInternal: Expander {
 
                 flush(varbuf, intermediate);
 
-                output.push_str(&match calc::eval(intermediate) {
+                output.push_str(&match crate::calc::eval(intermediate) {
                     Ok(s) => s.to_string(),
                     Err(e) => e.to_string(),
                 });

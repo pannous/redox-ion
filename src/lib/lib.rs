@@ -83,6 +83,8 @@ pub mod types;
 #[macro_use]
 pub mod parser;
 mod assignments;
+/// Pure Rust calculator (replaces external calculate crate)
+pub mod calc;
 /// Access to the predefined builtins
 pub mod builtins;
 /// Expand the AST to create pipelines
