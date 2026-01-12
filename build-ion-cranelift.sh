@@ -10,6 +10,7 @@ CRANELIFT="/opt/other/rustc_codegen_cranelift/dist/lib/librustc_codegen_cranelif
 SYSROOT="/opt/other/redox/build/aarch64/sysroot/lib"
 
 export DYLD_LIBRARY_PATH=~/.rustup/toolchains/${NIGHTLY}-aarch64-apple-darwin/lib
+export CARGO_INCREMENTAL=0
 
 export RUSTFLAGS="-Zcodegen-backend=${CRANELIFT} \
   -Crelocation-model=static \
