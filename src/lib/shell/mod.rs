@@ -49,7 +49,6 @@ use std::{
     fs::File,
     mem,
     ops::{Deref, DerefMut},
-    os::unix::io::AsRawFd,
     rc::Rc,
     sync::{atomic::Ordering, Arc, Mutex},
     time::SystemTime,
