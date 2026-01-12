@@ -4,7 +4,7 @@ use super::{
     Error,
 };
 use crate::{
-    parser::lexers::{assignment_lexer, ArgumentSplitter},
+    parser::lexers::{assignment_lexer, ArgumentSplitter, Operator},
     shell::{
         flow_control::{Case, ElseIf, ExportAction, IfMode, LocalAction, Statement},
         variables::Variables,
@@ -77,7 +77,22 @@ pub fn parse(code: &str) -> super::Result {
                     Ok(Statement::Export(ExportAction::Assign(keys.into(), op, vals.into())))
                 }
                 (None, Some(keys), None) => {
-                    Ok(Statement::Export(ExportAction::LocalExport(keys.into())))
+                    // Check for "export VAR value" syntax (space-separated, bash-compatible)
+                    if let Some(space_pos) = keys.find(|c: char| c.is_whitespace()) {
+                        let var_name = keys[..space_pos].trim();
+                        let value = keys[space_pos..].trim_start();
+                        if !value.is_empty() {
+                            Ok(Statement::Export(ExportAction::Assign(
+                                var_name.into(),
+                                Operator::Equal,
+                                value.into(),
+                            )))
+                        } else {
+                            Ok(Statement::Export(ExportAction::LocalExport(var_name.into())))
+                        }
+                    } else {
+                        Ok(Statement::Export(ExportAction::LocalExport(keys.into())))
+                    }
                 }
                 (None, Some(_), Some(_)) => Err(Error::NoValueSupplied),
                 (None, None, _) => Err(Error::NoKeySupplied),
@@ -183,7 +198,7 @@ mod tests {
             assignments::{KeyBuf, Primitive},
             Operator,
         },
-        shell::{flow_control::Statement, Job},
+        shell::{flow_control::{ExportAction, Statement}, Job},
     };
 
     #[test]
@@ -250,6 +265,51 @@ mod tests {
             matches!(actual, Err(Error::NoValueSupplied)),
             "Should return error {:?}",
             Error::NoValueSupplied
+        );
+    }
+
+    #[test]
+    fn parsing_export() {
+        // Traditional Ion syntax: export VAR=value
+        assert_eq!(
+            parse("export RUST_LOG=trace").unwrap(),
+            Statement::Export(ExportAction::Assign(
+                "RUST_LOG".to_owned(),
+                Operator::Equal,
+                "trace".to_owned()
+            )),
+        );
+
+        // Bash-compatible syntax: export VAR value (space-separated)
+        assert_eq!(
+            parse("export RUST_LOG trace").unwrap(),
+            Statement::Export(ExportAction::Assign(
+                "RUST_LOG".to_owned(),
+                Operator::Equal,
+                "trace".to_owned()
+            )),
+        );
+
+        // Space-separated with multiple words in value
+        assert_eq!(
+            parse("export PATH /usr/bin:/bin").unwrap(),
+            Statement::Export(ExportAction::Assign(
+                "PATH".to_owned(),
+                Operator::Equal,
+                "/usr/bin:/bin".to_owned()
+            )),
+        );
+
+        // Just export VAR (promote local to env)
+        assert_eq!(
+            parse("export FOO").unwrap(),
+            Statement::Export(ExportAction::LocalExport("FOO".to_owned())),
+        );
+
+        // List exports
+        assert_eq!(
+            parse("export").unwrap(),
+            Statement::Export(ExportAction::List),
         );
     }
 
