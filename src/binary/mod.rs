@@ -22,7 +22,7 @@ use std::{
     cell::{Cell, RefCell},
     fs::{self, OpenOptions},
     io::{self, Write},
-    os::unix::io::{AsRawFd, IntoRawFd},
+    os::unix::io::AsRawFd,
     path::Path,
     rc::Rc,
 };
@@ -276,16 +276,17 @@ impl<'a> InteractiveShell<'a> {
 
     /// Try to cd if the command failed
     fn try_cd(dir: &str, shell: &mut Shell<'_>) -> nix::Result<Status> {
-        // Gag the cd output
+        // Gag the cd output by temporarily redirecting stderr to /dev/null
         let null = OpenOptions::new()
             .write(true)
             .open("/dev/null")
-            .map_err(|err| nix::errno::Errno::from_i32(err.raw_os_error().unwrap()))?
-            .into_raw_fd();
+            .map_err(|err| nix::errno::Errno::from_i32(err.raw_os_error().unwrap()))?;
+        let null_fd = null.as_raw_fd();
 
         let fd = io::stderr().as_raw_fd();
         let fd_dup = nix::unistd::dup(fd)?;
-        nix::unistd::dup2(null, fd)?;
+        nix::unistd::dup2(null_fd, fd)?;
+        drop(null); // Close the /dev/null fd after dup2 copied it
         let out = ion_shell::builtins::builtin_cd(&["cd".into(), dir.into()], shell);
         nix::unistd::dup2(fd_dup, fd)?;
         nix::unistd::close(fd_dup)?;

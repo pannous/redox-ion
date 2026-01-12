@@ -117,17 +117,15 @@ impl TeeItem {
     /// should
     /// never be `RedirectFrom`::Both`
     pub fn write_to_all(&mut self, extra: Option<RedirectFrom>) -> ::std::io::Result<()> {
-        use std::{
-            io::{self, Read, Write},
-            os::unix::io::*,
-        };
-        fn write_out<R>(source: &mut R, sinks: &mut [File]) -> io::Result<()>
+        use std::io::{self, Read, Write};
+
+        fn write_out<R, W>(source: &mut R, sinks: &mut [File], mut extra_sink: Option<&mut W>) -> io::Result<()>
         where
             R: Read,
+            W: Write,
         {
             let mut buf = [0; 4096];
             loop {
-                // TODO: Figure out how to not block on this read
                 let len = source.read(&mut buf)?;
                 if len == 0 {
                     return Ok(());
@@ -135,29 +133,48 @@ impl TeeItem {
                 for file in sinks.iter_mut() {
                     file.write_all(&buf[..len])?;
                 }
+                if let Some(ref mut extra) = extra_sink {
+                    extra.write_all(&buf[..len])?;
+                }
             }
         }
-        let stdout = io::stdout();
-        let stderr = io::stderr();
+
         match extra {
-            None => {}
-            Some(RedirectFrom::Stdout) => unsafe {
-                self.sinks.push(File::from_raw_fd(stdout.as_raw_fd()))
-            },
-            Some(RedirectFrom::Stderr) => unsafe {
-                self.sinks.push(File::from_raw_fd(stderr.as_raw_fd()))
-            },
             Some(RedirectFrom::Both) => {
                 panic!("logic error! extra should never be RedirectFrom::Both")
             }
             Some(RedirectFrom::None) => panic!("logic error! No need to tee if no redirections"),
+            _ => {}
         };
+
         if let Some(ref mut file) = self.source {
-            write_out(file, &mut self.sinks)
+            match extra {
+                Some(RedirectFrom::Stdout) => {
+                    let stdout = io::stdout();
+                    write_out(file, &mut self.sinks, Some(&mut stdout.lock()))
+                }
+                Some(RedirectFrom::Stderr) => {
+                    let stderr = io::stderr();
+                    write_out(file, &mut self.sinks, Some(&mut stderr.lock()))
+                }
+                None => write_out::<_, io::Stdout>(file, &mut self.sinks, None),
+                _ => unreachable!(),
+            }
         } else {
             let stdin = io::stdin();
             let mut stdin = stdin.lock();
-            write_out(&mut stdin, &mut self.sinks)
+            match extra {
+                Some(RedirectFrom::Stdout) => {
+                    let stdout = io::stdout();
+                    write_out(&mut stdin, &mut self.sinks, Some(&mut stdout.lock()))
+                }
+                Some(RedirectFrom::Stderr) => {
+                    let stderr = io::stderr();
+                    write_out(&mut stdin, &mut self.sinks, Some(&mut stderr.lock()))
+                }
+                None => write_out::<_, io::Stdout>(&mut stdin, &mut self.sinks, None),
+                _ => unreachable!(),
+            }
         }
     }
 }
