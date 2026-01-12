@@ -49,6 +49,7 @@ use std::{
     fs::File,
     mem,
     ops::{Deref, DerefMut},
+    os::unix::io::AsRawFd,
     rc::Rc,
     sync::{atomic::Ordering, Arc, Mutex},
     time::SystemTime,
@@ -295,17 +296,40 @@ impl<'a> Shell<'a> {
             null_file.as_ref().or_else(|| self.stdout.as_ref()),
         );
 
+        eprintln!("DEBUG: run_pipeline items={}, stdin={:?}, stdout={:?}, stderr={:?}",
+            pipeline.items.len(),
+            self.stdin.as_ref().map(|f| f.as_raw_fd()),
+            self.stdout.as_ref().map(|f| f.as_raw_fd()),
+            self.stderr.as_ref().map(|f| f.as_raw_fd()));
         for item in &mut pipeline.items {
             item.job.stdin = self
                 .stdin
                 .as_ref()
-                .map(|file| file.try_clone().map_err(PipelineError::ClonePipeFailed))
+                .map(|file| {
+                    eprintln!("DEBUG: cloning stdin fd={}", file.as_raw_fd());
+                    file.try_clone().map_err(|e| {
+                        eprintln!("DEBUG: stdin clone failed: {:?}", e);
+                        PipelineError::ClonePipeFailed(e)
+                    })
+                })
                 .transpose()?;
             item.job.stdout = stdout
-                .map(|file| file.try_clone().map_err(PipelineError::ClonePipeFailed))
+                .map(|file| {
+                    eprintln!("DEBUG: cloning stdout fd={}", file.as_raw_fd());
+                    file.try_clone().map_err(|e| {
+                        eprintln!("DEBUG: stdout clone failed: {:?}", e);
+                        PipelineError::ClonePipeFailed(e)
+                    })
+                })
                 .transpose()?;
             item.job.stderr = stderr
-                .map(|file| file.try_clone().map_err(PipelineError::ClonePipeFailed))
+                .map(|file| {
+                    eprintln!("DEBUG: cloning stderr fd={}", file.as_raw_fd());
+                    file.try_clone().map_err(|e| {
+                        eprintln!("DEBUG: stderr clone failed: {:?}", e);
+                        PipelineError::ClonePipeFailed(e)
+                    })
+                })
                 .transpose()?;
         }
         if let Some(ref callback) = self.pre_command {
