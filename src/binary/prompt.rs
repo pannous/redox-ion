@@ -2,7 +2,7 @@ use super::InteractiveShell;
 use ion_shell::{
     expansion::Expander,
     Shell,
-    shell::variables::Value,
+    Value,
 };
 use liner::{KeyBindings::*, Prompt, ViPromptMode, ViStatus};
 
