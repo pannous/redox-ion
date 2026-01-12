@@ -18,7 +18,6 @@ export RUSTFLAGS="-Zcodegen-backend=${CRANELIFT} \
   -Clink-arg=${SYSROOT}/crt0.o \
   -Clink-arg=${SYSROOT}/crti.o \
   -Clink-arg=${SYSROOT}/crtn.o \
-  -Clink-arg=-lgcc_eh \
   -Clink-arg=-z -Clink-arg=muldefs \
   -Cpanic=abort"
 
