@@ -28,6 +28,44 @@ use std::{
 };
 use xdg::BaseDirectories;
 
+/// Print partial line indicator if output didn't end with newline.
+/// Uses zsh's technique: print indicator + spaces + CR + clear line.
+fn print_partial_line_indicator() {
+    let mut stdout = io::stdout();
+
+    // Technique (similar to zsh):
+    // 1. Print reverse-video % + space, then enough spaces to fill/wrap line
+    // 2. Print CR to go to column 1
+    // 3. Print clear-to-end-of-line escape sequence
+    //
+    // If cursor WAS at column 1:
+    //   - % appears, spaces fill line, CR goes to column 1 of SAME line
+    //   - Clear erases the %, we end up with blank line, prompt appears
+    //
+    // If cursor was NOT at column 1 (partial line):
+    //   - % appears after output, spaces wrap to next line, CR goes to column 1 of NEW line
+    //   - Clear erases the new line (harmless), % stays visible on previous line
+
+    const WIDTH: usize = 80;
+
+    let mut buf = Vec::with_capacity(WIDTH + 20);
+
+    // Reverse video % (partial line indicator)
+    buf.extend_from_slice(b"\x1b[7m%\x1b[0m ");
+
+    // Fill with spaces (WIDTH-2 for % and space) to ensure we wrap if not at column 1
+    buf.extend(std::iter::repeat(b' ').take(WIDTH - 2));
+
+    // CR to go to column 1 (of current line - which is either original or wrapped)
+    buf.push(b'\r');
+
+    // Clear from cursor to end of line - this erases the % if we were at column 1
+    buf.extend_from_slice(b"\x1b[K");
+
+    let _ = stdout.write_all(&buf);
+    let _ = stdout.flush();
+}
+
 pub const MAN_ION: &str = r#"ion 1.0.0-alpha
 The fast, safe, modern rust shell. Ion is a commandline shell created to be a faster and easier to use alternative to
 the currently available shells. It is not POSIX compliant.
@@ -259,6 +297,8 @@ impl<'a> InteractiveShell<'a> {
             if let Err(err) = io::stderr().flush() {
                 println!("ion: failed to flush stderr: {}", err);
             }
+            // Show partial line indicator if previous output didn't end with newline
+            print_partial_line_indicator();
             match self.readln(prep_for_exit) {
                 Some(lines) => {
                     for command in lines
