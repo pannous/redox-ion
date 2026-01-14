@@ -24,31 +24,31 @@ impl<'a, 'b> Expander for Shell<'b> {
         use std::os::unix::io::AsRawFd;
         let (mut reader, writer) = create_pipe()
             .map_err(|err| {
-                eprintln!("DEBUG: create_pipe failed: {:?}", err);
+                log::debug!("create_pipe failed: {:?}", err);
                 Error::Subprocess(Box::new(IonError::PipelineExecutionError(err)))
             })?;
-        eprintln!("DEBUG: pipe fds: reader={}, writer={}", reader.as_raw_fd(), writer.as_raw_fd());
+        log::debug!("pipe fds: reader={}, writer={}", reader.as_raw_fd(), writer.as_raw_fd());
         let null_file = File::open(NULL_PATH).map_err(|err| {
-            eprintln!("DEBUG: open null failed: {:?}", err);
+            log::debug!("open null failed: {:?}", err);
             Error::Subprocess(Box::new(IonError::PipelineExecutionError(
                 PipelineError::CaptureFailed(err),
             )))
         })?;
-        eprintln!("DEBUG: null fd={}", null_file.as_raw_fd());
+        log::debug!("null fd={}", null_file.as_raw_fd());
 
         // Store the previous default redirections
         let prev_stdout = self.stdout(writer);
         let prev_stderr = self.stderr(null_file);
 
-        eprintln!("DEBUG: about to execute command: {}", command);
+        log::debug!("about to execute command: {}", command);
         // Execute the command
         let result = self
             .on_command(command.bytes(), set_cmd_duration)
             .map_err(|err| {
-                eprintln!("DEBUG: on_command failed: {:?}", err);
+                log::debug!("on_command failed: {:?}", err);
                 Error::Subprocess(Box::new(err))
             });
-        eprintln!("DEBUG: on_command returned: {:?}", result.is_ok());
+        log::debug!("on_command returned: {:?}", result.is_ok());
 
         // Reset the pipes, droping the stdout
         self.stdout(prev_stdout);
