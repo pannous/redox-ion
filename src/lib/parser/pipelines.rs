@@ -118,6 +118,8 @@ impl<'a> Collector<'a> {
         let mut pipeline = Pipeline::new();
         let mut outputs: Vec<Redirection> = Vec::new();
         let mut inputs: Vec<Input> = Vec::new();
+        // Track if stderr has been merged with stdout via 2>&1
+        let mut stderr_to_stdout = false;
 
         while let Some(&(i, b)) = bytes.peek() {
             // Determine what production rule we are using based on the first character
@@ -183,8 +185,15 @@ impl<'a> Collector<'a> {
                 }
                 b'|' => {
                     bytes.next();
+                    // If stderr was merged with stdout via 2>&1, pipe both streams
+                    let redirect_from = if stderr_to_stdout {
+                        stderr_to_stdout = false; // reset for next command
+                        RedirectFrom::Both
+                    } else {
+                        RedirectFrom::Stdout
+                    };
                     pipeline.add_item(
-                        RedirectFrom::Stdout,
+                        redirect_from,
                         std::mem::replace(&mut args, Args::with_capacity(ARG_DEFAULT_SIZE)),
                         std::mem::take(&mut outputs),
                         std::mem::take(&mut inputs),
@@ -215,6 +224,40 @@ impl<'a> Collector<'a> {
                         inputs.push(Input::File(file.into()));
                     } else {
                         return Err(PipelineParsingError::NoRedirectionArg);
+                    }
+                }
+                // POSIX-style stderr redirection: 2>, 2>>, 2>&1
+                b'2' => {
+                    // Check if this is followed by > (stderr redirect syntax)
+                    if let Some(b'>') = self.peek(i + 1) {
+                        bytes.next(); // consume '2'
+                        bytes.next(); // consume '>'
+                        // Check for 2>&1 (stderr to stdout merge)
+                        if let (Some(b'&'), Some(b'1')) = (self.peek(i + 2), self.peek(i + 3)) {
+                            bytes.next(); // consume '&'
+                            bytes.next(); // consume '1'
+                            stderr_to_stdout = true;
+                        } else {
+                            // 2> or 2>> (stderr to file)
+                            let append = if let Some(&(_, b'>')) = bytes.peek() {
+                                bytes.next();
+                                true
+                            } else {
+                                false
+                            };
+                            if let Some(file) = self.arg(&mut bytes)? {
+                                outputs.push(Redirection {
+                                    from: RedirectFrom::Stderr,
+                                    file: file.into(),
+                                    append,
+                                });
+                            } else {
+                                return Err(PipelineParsingError::NoRedirection);
+                            }
+                        }
+                    } else {
+                        // Just a '2' as part of an argument
+                        self.push_arg(&mut args, &mut bytes)?;
                     }
                 }
                 // Skip over whitespace between jobs
@@ -1029,5 +1072,91 @@ mod tests {
         assert_parse_error("]");
         assert_parse_error("}");
         assert_parse_error(")");
+    }
+
+    // POSIX-style stderr redirection tests
+    #[test]
+    fn posix_stderr_to_file() {
+        // 2> should redirect stderr to a file (like ^>)
+        if let Statement::Pipeline(pipeline) = parse("cmd 2> error.log").unwrap() {
+            assert_eq!(1, pipeline.items.len());
+            assert_eq!("cmd", &pipeline.items[0].job.args[0]);
+            assert_eq!(1, pipeline.items[0].outputs.len());
+            assert_eq!(RedirectFrom::Stderr, pipeline.items[0].outputs[0].from);
+            assert_eq!("error.log", &pipeline.items[0].outputs[0].file);
+            assert!(!pipeline.items[0].outputs[0].append);
+        } else {
+            panic!("Expected pipeline");
+        }
+    }
+
+    #[test]
+    fn posix_stderr_to_file_append() {
+        // 2>> should append stderr to a file (like ^>>)
+        if let Statement::Pipeline(pipeline) = parse("cmd 2>> error.log").unwrap() {
+            assert_eq!(1, pipeline.items.len());
+            assert_eq!("cmd", &pipeline.items[0].job.args[0]);
+            assert_eq!(1, pipeline.items[0].outputs.len());
+            assert_eq!(RedirectFrom::Stderr, pipeline.items[0].outputs[0].from);
+            assert_eq!("error.log", &pipeline.items[0].outputs[0].file);
+            assert!(pipeline.items[0].outputs[0].append);
+        } else {
+            panic!("Expected pipeline");
+        }
+    }
+
+    #[test]
+    fn posix_stderr_to_stdout_pipe() {
+        // 2>&1 | should pipe both stdout and stderr (like &|)
+        if let Statement::Pipeline(pipeline) = parse("cmd 2>&1 | cat").unwrap() {
+            assert_eq!(2, pipeline.items.len());
+            assert_eq!("cmd", &pipeline.items[0].job.args[0]);
+            assert_eq!(RedirectFrom::Both, pipeline.items[0].job.redirection);
+            assert_eq!("cat", &pipeline.items[1].job.args[0]);
+        } else {
+            panic!("Expected pipeline");
+        }
+    }
+
+    #[test]
+    fn posix_stderr_redirect_no_space() {
+        // 2>error.log (no space) should work
+        if let Statement::Pipeline(pipeline) = parse("cmd 2>error.log").unwrap() {
+            assert_eq!(1, pipeline.items.len());
+            assert_eq!("cmd", &pipeline.items[0].job.args[0]);
+            assert_eq!(RedirectFrom::Stderr, pipeline.items[0].outputs[0].from);
+            assert_eq!("error.log", &pipeline.items[0].outputs[0].file);
+        } else {
+            panic!("Expected pipeline");
+        }
+    }
+
+    #[test]
+    fn posix_two_as_argument() {
+        // '2' as argument should not be treated as redirect
+        if let Statement::Pipeline(pipeline) = parse("echo 2 3 4").unwrap() {
+            assert_eq!(1, pipeline.items.len());
+            assert_eq!("echo", &pipeline.items[0].job.args[0]);
+            assert_eq!("2", &pipeline.items[0].job.args[1]);
+            assert_eq!("3", &pipeline.items[0].job.args[2]);
+            assert_eq!("4", &pipeline.items[0].job.args[3]);
+        } else {
+            panic!("Expected pipeline");
+        }
+    }
+
+    #[test]
+    fn posix_stderr_with_stdout_redirect() {
+        // Combine 2> with > (stderr and stdout to different files)
+        if let Statement::Pipeline(pipeline) = parse("cmd > out.log 2> err.log").unwrap() {
+            assert_eq!(1, pipeline.items.len());
+            assert_eq!(2, pipeline.items[0].outputs.len());
+            assert_eq!(RedirectFrom::Stdout, pipeline.items[0].outputs[0].from);
+            assert_eq!("out.log", &pipeline.items[0].outputs[0].file);
+            assert_eq!(RedirectFrom::Stderr, pipeline.items[0].outputs[1].from);
+            assert_eq!("err.log", &pipeline.items[0].outputs[1].file);
+        } else {
+            panic!("Expected pipeline");
+        }
     }
 }

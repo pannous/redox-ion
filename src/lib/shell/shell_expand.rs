@@ -21,34 +21,26 @@ impl<'a, 'b> Expander for Shell<'b> {
         command: &str,
         set_cmd_duration: bool,
     ) -> Result<types::Str, Self::Error> {
-        use std::os::unix::io::AsRawFd;
         let (mut reader, writer) = create_pipe()
             .map_err(|err| {
-                log::debug!("create_pipe failed: {:?}", err);
                 Error::Subprocess(Box::new(IonError::PipelineExecutionError(err)))
             })?;
-        log::debug!("pipe fds: reader={}, writer={}", reader.as_raw_fd(), writer.as_raw_fd());
         let null_file = File::open(NULL_PATH).map_err(|err| {
-            log::debug!("open null failed: {:?}", err);
             Error::Subprocess(Box::new(IonError::PipelineExecutionError(
                 PipelineError::CaptureFailed(err),
             )))
         })?;
-        log::debug!("null fd={}", null_file.as_raw_fd());
 
         // Store the previous default redirections
         let prev_stdout = self.stdout(writer);
         let prev_stderr = self.stderr(null_file);
 
-        log::debug!("about to execute command: {}", command);
         // Execute the command
         let result = self
             .on_command(command.bytes(), set_cmd_duration)
             .map_err(|err| {
-                log::debug!("on_command failed: {:?}", err);
                 Error::Subprocess(Box::new(err))
             });
-        log::debug!("on_command returned: {:?}", result.is_ok());
 
         // Reset the pipes, droping the stdout
         self.stdout(prev_stdout);
