@@ -6,7 +6,13 @@ use std::io::ErrorKind;
 impl<'a> InteractiveShell<'a> {
     /// Make sure to reset the fd to blocking mode
     fn change_blocking(fd: std::os::unix::io::RawFd) {
-        fcntl(fd, FcntlArg::F_SETFL(OFlag::O_RDWR)).unwrap();
+        // Get current flags, clear O_NONBLOCK, set back
+        // Note: O_RDWR is an access mode, not a status flag - can't use it to clear O_NONBLOCK
+        if let Ok(flags) = fcntl(fd, FcntlArg::F_GETFL) {
+            let mut oflags = OFlag::from_bits_truncate(flags);
+            oflags.remove(OFlag::O_NONBLOCK);
+            let _ = fcntl(fd, FcntlArg::F_SETFL(oflags));
+        }
     }
 
     /// Ion's interface to Liner's `read_line` method, which handles everything related to
